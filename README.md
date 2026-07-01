@@ -273,9 +273,16 @@ mechanic/
 - The MCP server is a reader; it cannot mutate the store or run sensors.
 - The installer never asks for root. It edits your own `~/.claude.json` with a timestamped backup.
 
-## Roadmap
+## Mechanic × Drift — use them together
 
-Mechanic is the first of two companion tools. The second — **Drift** — is a `diff` for live systems: snapshot a box's operational state (ports, services, packages, cron, containers, users), then days later ask "what changed, in plain English?" Drift pairs naturally with Mechanic: Mechanic tells you the *numbers* are off; Drift tells you *what configuration* moved. Drift is next.
+Mechanic has a companion: [**Drift**](https://github.com/sunkencity999/drift), a `diff` for live systems. They're most powerful as a pair:
+
+- **Mechanic** watches *runtime metrics* continuously (CPU, memory, Ollama models loaded, Docker containers) and tells you **the numbers moved** — "CPU is anomalous right now."
+- **Drift** watches *operational configuration* at intervals (ports, services, packages, users, cron) and tells you **what configuration moved** — "port 9000 was opened 2 hours ago."
+
+**The workflow:** Mechanic flags that something is off → ask Drift what changed between now and the last snapshot → Drift shows the config change that explains it. A CPU spike (Mechanic) + a newly-enabled service (Drift) = the full story. Each is useful alone; together they cover "is this abnormal?" *and* "what changed?".
+
+## Roadmap
 
 Other v1.1+ ideas: more sensors (network connections by host, systemd units, cron drift), alerting hooks, remote aggregation across a homelab, a richer time-series backend.
 
