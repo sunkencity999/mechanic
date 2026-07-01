@@ -65,7 +65,6 @@ def cmd_doctor(cfg: Config) -> int:
           f"z={cfg.z_threshold} min_samples={cfg.min_samples}")
     print()
     print("Sensors:")
-    any_missing = False
     for s in _sensor_registry.all():
         try:
             avail = bool(s.is_available())
@@ -75,7 +74,9 @@ def cmd_doctor(cfg: Config) -> int:
         state = "available" if avail else "not available (will be skipped)"
         print(f"  {mark} {s.name:<10} {state}")
         if not avail:
-            any_missing = True
+            hint = _SENSOR_HINTS.get(s.name)
+            if hint:
+                print(f"             {hint}")
     print()
     try:
         store = _open_store(cfg)
@@ -85,7 +86,19 @@ def cmd_doctor(cfg: Config) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"Storage: ERROR — {exc}")
         return EXIT_STORAGE_ERROR
-    return EXIT_MISSING_DEPS if any_missing else EXIT_OK
+    # An absent optional sensor (ollama/docker not installed) is NOT an error —
+    # Mechanic runs fine on whatever sensors are available. Only return nonzero if
+    # storage itself is broken (handled above).
+    return EXIT_OK
+
+
+# Hints shown by `mechanic doctor` when an optional sensor's backend isn't installed.
+# Mechanic never requires these — they're just more things it can watch. The hint
+# points the user at the optional install without ever forcing it.
+_SENSOR_HINTS = {
+    "ollama": "install ollama if you want model-load monitoring (optional)",
+    "docker": "install docker if you want container monitoring (optional)",
+}
 
 
 def cmd_once(cfg: Config) -> int:

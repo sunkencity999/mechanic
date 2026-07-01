@@ -25,6 +25,41 @@ def test_doctor_returns_zero_when_ok(tmp_path, monkeypatch):
     assert rc == 0
 
 
+def test_doctor_returns_zero_even_when_optional_sensors_missing(tmp_path, monkeypatch):
+    """An absent optional sensor (e.g. ollama not installed) is not an error —
+    Mechanic runs on whatever sensors are available. doctor must return 0."""
+    monkeypatch.setenv("MECHANIC_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MECHANIC_DB_PATH", str(tmp_path / "m.db"))
+    # Force the ollama sensor to report unavailable, simulating a box without it.
+    from mechanic.plugins.ollama_sensor import OllamaSensor
+
+    orig = OllamaSensor.is_available
+    OllamaSensor.is_available = lambda self: False
+    try:
+        rc = cli.run(["doctor"])
+    finally:
+        OllamaSensor.is_available = orig
+    assert rc == 0  # not EXIT_MISSING_DEPS
+
+
+def test_doctor_prints_hint_when_optional_sensor_missing(tmp_path, monkeypatch, capsys):
+    """When an optional sensor is unavailable, doctor prints a one-line install hint
+    so the user knows what they'd get — without forcing the install."""
+    monkeypatch.setenv("MECHANIC_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MECHANIC_DB_PATH", str(tmp_path / "m.db"))
+    from mechanic.plugins.ollama_sensor import OllamaSensor
+
+    orig = OllamaSensor.is_available
+    OllamaSensor.is_available = lambda self: False
+    try:
+        cli.run(["doctor"])
+    finally:
+        OllamaSensor.is_available = orig
+    out = capsys.readouterr().out
+    assert "ollama" in out
+    assert "optional" in out  # the nudge appears, clearly marked optional
+
+
 def test_once_writes_a_sample_and_returns_zero(tmp_path):
     import os
 
