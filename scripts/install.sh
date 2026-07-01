@@ -127,11 +127,14 @@ z_threshold   = 3.0
 min_samples   = 30
 
 [storage]
-# data_dir defaults to $DATA_DIR
+# The single source of truth for where samples live. The daemon, the MCP server,
+# and your interactive 'mechanic status' all read this, so they agree on one DB.
+data_dir = $DATA_DIR
 EOF
   log "Wrote default config: $INI"
 else
   log "Existing config preserved: $INI"
+  warn "If its [storage] data_dir doesn't match $DATA_DIR, the CLI and daemon may use different DBs."
 fi
 mkdir -p "$DATA_DIR"
 log "Data dir: $DATA_DIR"
