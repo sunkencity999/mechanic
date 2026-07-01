@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Mechanic runtime data (don't commit local state)
+*.sqlite
+*.sqlite3
+mechanic.db
+mechanic.sqlite
+
+# OS
+.DS_Store
