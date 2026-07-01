@@ -107,13 +107,14 @@ Is `value` within the learned baseline for `metric`? Returns `normal`, `z_score`
 Metric names are `<sensor>.<key>`, e.g. `os.cpu_pct`, `docker.n_containers`, `ollama.n_models_loaded`.
 
 ### `what_changed_since(minutes_ago)`
-Set-differences in sensor state vs N minutes ago. For set-valued metrics (container names, loaded models) reports `added` / `removed`; for scalars reports `from` / `to` / `delta`.
+What changed in sensor state vs N minutes ago. For set-valued metrics (container names, loaded models) reports `added` / `removed` on any change — a new container or model is always meaningful. For scalars, only reports the delta when the new value is **anomalous against that metric's learned baseline**, so routine drift (net bytes creeping up, load wobbling 0.2) doesn't flood the result with trivial entries.
 ```json
 {"minutes_ago": 60, "changes": [
   {"sensor": "docker", "container_names": {"added": ["db"], "removed": []}},
   {"sensor": "ollama", "loaded_models": {"added": ["qwen3:32b"], "removed": ["llama3.2:3b"]}}
 ]}
 ```
+A cold metric (not enough history to establish a baseline) never surfaces as a scalar change — we can't call it anomalous if we don't yet know what's normal.
 
 ### `baseline_for(target)`
 Stats for one metric (`os.cpu_pct`) or a whole sensor (`os`). Returns `mean`, `std`, `min`, `max`, `last`, `n`, `ewma`.
@@ -177,6 +178,20 @@ These are written for an AI client (Claude Code, etc.) that has the `mechanic` M
 - *"I'm about to run a big job. Snapshot the current state with mechanic so I can ask 'what changed?' afterwards."*
 
 **Tip:** you don't have to know which tool to call — just describe the situation in your own words and let the AI pick `is_this_normal`, `what_changed_since`, `baseline_for`, or `recent` as needed. The tool names are there for when you want to be explicit.
+
+## CLI reference
+
+Everything the MCP server does, you can also do from the shell:
+
+```bash
+mechanic once        # sample every available sensor once, then exit (debug / smoke test)
+mechanic status      # show the most recent sample per sensor
+mechanic doctor      # sensor availability + storage health
+mechanic sampler     # run the sampling daemon (foreground; supervisors manage this)
+mechanic server      # run the MCP stdio server (spawned by AI clients)
+```
+
+`once` is the quickest way to confirm Mechanic works on a box — it samples every available sensor once and prints where it wrote.
 
 ## Configuration
 
@@ -263,7 +278,7 @@ mechanic/
   scripts/
     install.sh                  # cross-platform, user-level installer
     uninstall.sh
-  tests/                        # pytest; ~60 tests, bottom-up TDD
+  tests/                        # pytest; 80 tests, bottom-up TDD
 ```
 
 ## Security
@@ -280,7 +295,24 @@ Mechanic has a companion: [**Drift**](https://github.com/sunkencity999/drift), a
 - **Mechanic** watches *runtime metrics* continuously (CPU, memory, Ollama models loaded, Docker containers) and tells you **the numbers moved** — "CPU is anomalous right now."
 - **Drift** watches *operational configuration* at intervals (ports, services, packages, users, cron) and tells you **what configuration moved** — "port 9000 was opened 2 hours ago."
 
-**The workflow:** Mechanic flags that something is off → ask Drift what changed between now and the last snapshot → Drift shows the config change that explains it. A CPU spike (Mechanic) + a newly-enabled service (Drift) = the full story. Each is useful alone; together they cover "is this abnormal?" *and* "what changed?".
+Each is a **fully standalone** install — separate repo, separate venv, separate database, separate daemon. Neither depends on the other; you can install one or both. They pair only by both being MCP servers your AI client can call, and by each referencing the other in its README. They never share data or talk to each other directly — the AI client is the bridge.
+
+**The workflow:** Mechanic flags that something is off → ask Drift what changed between now and the last snapshot → Drift shows the config change that explains it.
+
+**A concrete worked example.** You ask your AI client: *"is the current CPU usage normal?"* Mechanic answers:
+
+```json
+{"metric": "os.cpu_pct", "value": 92, "normal": false, "z_score": 8.1, "mean": 11, "std": 6}
+```
+
+That tells you *something* is wrong but not *why*. So you ask: *"use drift — what changed on this box between the last two snapshots?"* Drift answers:
+
+```
+Compared 'auto #41' → 'auto #42'. Changes:
+  services: 1 service(s) added (dev.ml-trainer.plist).
+```
+
+A new launchd service appeared — that's the ml-trainer running flat-out, which explains the CPU spike Mechanic flagged. Mechanic said "the numbers are off"; Drift said "here's the configuration that moved." Together: the full diagnosis.
 
 ## Roadmap
 
