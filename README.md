@@ -126,11 +126,57 @@ What's installed and working on this box: sensor availability flags, storage pat
 
 ### Example prompts to try
 
-- *"Run mechanic's doctor tool and tell me what's available."*
+These are written for an AI client (Claude Code, etc.) that has the `mechanic` MCP server connected. Copy them verbatim or adapt — they're grouped by what you're actually trying to do.
+
+**First run / "is this thing on?"**
+- *"Run the mechanic doctor tool and tell me what's available on this machine."*
+- *"Is mechanic healthy? Show me storage status and which sensors are active."*
+- *"Use mechanic's recent tool to show me the last few os samples — is the sampler actually running?"*
+
+**"Is this normal?" — the core question**
 - *"Is the current CPU usage normal for this machine, or should I be worried?"*
+- *"Check mechanic — is my memory pressure right now within the normal baseline?"*
+- *"Is 90% disk usage normal here, or has it crept up compared to usual?"*
+- *"Is the load average I'm seeing unusual for this box?"*
+- *"Is the number of running Docker containers normal, or did something spin up?"*
+- *"Is the amount of VRAM Ollama is using right now typical for me?"*
+
+**"What changed?" — the diff question**
 - *"What changed on this box in the last hour?"*
-- *"What's the baseline for memory usage? Give me the numbers."*
+- *"Use mechanic to tell me what's different now versus 30 minutes ago."*
+- *"Did any new Docker containers start, or any stop, since I left for lunch?"*
+- *"Have the loaded Ollama models changed since this morning?"*
+- *"What changed in the last 24 hours? Summarize just the differences."*
+
+**"Give me the numbers" — baselines and history**
+- *"What's the baseline for memory usage? Give me the mean and standard deviation."*
+- *"Show me the baseline for every os metric — cpu, mem, disk, load."*
+- *"What's the usual CPU range on this machine? Min and max over the baseline window."*
 - *"Show me the recent ollama samples — how many models are usually loaded?"*
+- *"Give me the last 20 docker samples so I can see the pattern."*
+
+**Investigating a slowdown or spike**
+- *"Something feels slow. Use mechanic to check whether CPU, memory, and load are all within normal range right now."*
+- *"I just noticed a fan spin up. Did anything change on the box in the last 15 minutes?"*
+- *"Is the current memory usage anomalous? If so, by how many standard deviations?"*
+- *"Pull the recent os samples and tell me if anything looks outside the baseline."*
+
+**Ollama / model-loading workflows** (a real differentiator — no one else instruments this)
+- *"Is the VRAM Ollama's using right now normal for me, or is something bigger loaded than usual?"*
+- *"What Ollama models are loaded right now, and is that the usual set? What changed recently?"*
+- *"I loaded a big model and things feel tight — is memory pressure anomalous because of it?"*
+
+**Docker workflows**
+- *"How many containers are running, and is that a normal number for this box?"*
+- *"Did a container stop or start in the last hour? Use what_changed_since."*
+- *"Show me the baseline for container count — am I running way more than usual?"*
+
+**Multi-tool / "investigate for me"**
+- *"Something's off with this box. Run doctor, then check whether CPU, memory, and load are all within their baselines, and tell me what changed in the last hour. Give me a one-paragraph summary."*
+- *"Am I in a healthy state right now? Check the baselines for the os sensor and flag anything anomalous."*
+- *"I'm about to run a big job. Snapshot the current state with mechanic so I can ask 'what changed?' afterwards."*
+
+**Tip:** you don't have to know which tool to call — just describe the situation in your own words and let the AI pick `is_this_normal`, `what_changed_since`, `baseline_for`, or `recent` as needed. The tool names are there for when you want to be explicit.
 
 ## Configuration
 
