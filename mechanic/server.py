@@ -81,12 +81,13 @@ def build_server(store: Store, config: Config) -> FastMCP:
 
     @mcp.tool()
     def is_this_normal(metric: str, value: float) -> dict[str, Any]:
-        """Is `value` within the learned normal range for `metric`?
+        """Is this value normal for this machine? Answers 'is the current CPU/memory/
+        disk/load/VRAM/etc. normal?' or 'should I be worried about X?'.
 
-        Metric names are '<sensor>.<key>', e.g. 'os.cpu_pct', 'docker.n_containers'.
-        The baseline is rebuilt from recorded history on every call — querying with a
-        spike does NOT pollute the baseline for future queries.
-        Returns: normal(bool), z_score, mean, std, n, cold_start(bool when < min_samples).
+        Pass a metric name ('<sensor>.<key>', e.g. 'os.cpu_pct', 'os.mem_pct',
+        'docker.n_running', 'ollama.loaded_vram_gb') and the value to check. Returns
+        normal(bool), z_score, mean, std, n, cold_start. The baseline is rebuilt from
+        recorded history on every call — querying with a spike does NOT pollute it.
         """
         b = _hydrate_baseline(store, config, metric)
         stats = b.stats_for(metric)
@@ -116,7 +117,9 @@ def build_server(store: Store, config: Config) -> FastMCP:
 
     @mcp.tool()
     def what_changed_since(minutes_ago: float = 60.0) -> dict[str, Any]:
-        """What changed in the last `minutes_ago` minutes?
+        """What changed on this box in the last N minutes? Answers 'what changed
+        recently?', 'did anything change in the last hour?', 'did new containers or
+        Ollama models appear since I left?'.
 
         Compares the most recent sample of each sensor against the sample closest to
         `minutes_ago` ago. For set-valued metrics (container_names, loaded_models)
@@ -158,11 +161,13 @@ def build_server(store: Store, config: Config) -> FastMCP:
 
     @mcp.tool()
     def baseline_for(target: str) -> dict[str, Any]:
-        """Baseline statistics for a metric or a whole sensor.
+        """Give me the baseline numbers for a metric or sensor. Answers 'what's the
+        normal range for CPU/memory/etc.?', 'what's the usual value?', 'min and max
+        over the baseline window'.
 
-        `target` is either '<sensor>.<key>' (one metric) or '<sensor>' (all numeric
-        metrics produced by that sensor). Statistics are computed from recorded
-        history on each call.
+        `target` is either '<sensor>.<key>' (one metric, e.g. 'os.cpu_pct') or
+        '<sensor>' (all numeric metrics from that sensor, e.g. 'os'). Returns mean,
+        std, min, max, last, n. Statistics are computed from recorded history on each call.
         """
         if "." in target:
             b = _hydrate_baseline(store, config, target)
@@ -202,7 +207,10 @@ def build_server(store: Store, config: Config) -> FastMCP:
 
     @mcp.tool()
     def recent(sensor: str, limit: int = 10) -> dict[str, Any]:
-        """The last `limit` samples for `sensor`, newest first."""
+        """Show me the last few samples for a sensor — newest first, with age. Answers
+        'what does it look like right now?', 'show me recent CPU samples', 'how many
+        models are loaded right now?'. `sensor` is 'os', 'docker', or 'ollama'.
+        """
         rows = store.read_samples(sensor, limit=limit)
         return {
             "sensor": sensor,
@@ -219,7 +227,10 @@ def build_server(store: Store, config: Config) -> FastMCP:
 
     @mcp.tool()
     def doctor() -> dict[str, Any]:
-        """Report Mechanic's health on this box: sensor availability + storage status."""
+        """Is Mechanic healthy on this box? Reports which sensors are available
+        (os, docker, ollama) and storage status. Use this for 'is mechanic working?'
+        / 'what can it watch here?' / first-run sanity checks.
+        """
         sensors = []
         for s in _sensor_registry.all():
             try:
