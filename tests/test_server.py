@@ -183,6 +183,68 @@ def test_what_changed_since_with_no_changes_returns_empty(config):
     assert r["changes"] == []
 
 
+def test_what_changed_since_filters_scalar_drift_within_baseline(config):
+    """A scalar that drifted but stays within its baseline should NOT surface — that's
+    the fix for the 'noisy 9 trivial deltas' problem. Only anomalous scalars report."""
+    s = Store(config)
+    s.open()
+    # Warm a tight cpu baseline around 50, and a wide mem baseline.
+    for _ in range(40):
+        s.write_sample("os", {"cpu_pct": 50.0, "mem_pct": 40.0})
+    # past sample: cpu 50, mem 40
+    # latest sample: cpu 50.3 (jitter, within baseline), mem 40.2 (jitter, within)
+    s.write_sample("os", {"cpu_pct": 50.3, "mem_pct": 40.2})
+    srv = build_server(s, config)
+    r = _call(srv, "what_changed_since", {"minutes_ago": 60})
+    os_changes = [c for c in r["changes"] if c["sensor"] == "os"]
+    # cpu_pct and mem_pct drifted but within baseline → not surfaced
+    assert os_changes == [], f"expected no os changes for within-baseline drift, got {os_changes}"
+
+
+def test_what_changed_since_surfaces_anomalous_scalar(config):
+    """A scalar that jumps outside its baseline SHOULD surface, with the delta."""
+    s = Store(config)
+    s.open()
+    for _ in range(40):
+        s.write_sample("os", {"cpu_pct": 50.0, "mem_pct": 40.0})
+    # latest: cpu spikes to 500 (anomalous), mem stays put
+    s.write_sample("os", {"cpu_pct": 500.0, "mem_pct": 40.0})
+    srv = build_server(s, config)
+    r = _call(srv, "what_changed_since", {"minutes_ago": 60})
+    os_changes = [c for c in r["changes"] if c["sensor"] == "os"]
+    assert os_changes, "expected an os change for the cpu spike"
+    assert "cpu_pct" in os_changes[0]
+    assert "mem_pct" not in os_changes[0]  # mem didn't spike
+
+
+def test_what_changed_since_always_surfaces_set_changes(config):
+    """Set-valued metrics (containers, models) surface on any add/remove, regardless
+    of baseline — a new container is always meaningful, never 'drift'."""
+    s = Store(config)
+    s.open()
+    for _ in range(40):
+        s.write_sample("docker", {"n_containers": 1, "n_running": 1, "container_names": ["web"]})
+    s.write_sample("docker", {"n_containers": 2, "n_running": 2, "container_names": ["web", "db"]})
+    srv = build_server(s, config)
+    r = _call(srv, "what_changed_since", {"minutes_ago": 60})
+    docker_changes = [c for c in r["changes"] if c["sensor"] == "docker"]
+    assert docker_changes
+    assert "db" in docker_changes[0]["container_names"]["added"]
+
+
+def test_what_changed_since_cold_metric_filters_out(config):
+    """A scalar with no baseline history (cold-start) doesn't surface drift — we
+    can't call it anomalous if we don't know what's normal yet."""
+    s = Store(config)
+    s.open()
+    s.write_sample("os", {"cpu_pct": 10.0})
+    s.write_sample("os", {"cpu_pct": 12.0})  # only 2 samples, < min_samples
+    srv = build_server(s, config)
+    r = _call(srv, "what_changed_since", {"minutes_ago": 60})
+    os_changes = [c for c in r["changes"] if c["sensor"] == "os"]
+    assert os_changes == []
+
+
 def test_tools_return_json_serializable(server):
     """Every tool's structured result must be JSON-serializable (it crosses stdio)."""
     for tool, args in [

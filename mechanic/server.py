@@ -120,7 +120,11 @@ def build_server(store: Store, config: Config) -> FastMCP:
 
         Compares the most recent sample of each sensor against the sample closest to
         `minutes_ago` ago. For set-valued metrics (container_names, loaded_models)
-        reports added/removed sets; for scalars reports the delta.
+        reports added/removed sets on any change — a new container or model is always
+        meaningful. For scalars, only reports the delta when the new value is
+        ANOMALOUS against that metric's learned baseline, so routine drift (net bytes
+        creeping up, load wobbling 0.2) doesn't flood the result. A cold metric (no
+        baseline yet) never surfaces as a scalar change.
         """
         cutoff = time.time() - minutes_ago * 60.0
         changes: list[dict[str, Any]] = []
@@ -139,7 +143,9 @@ def build_server(store: Store, config: Config) -> FastMCP:
                 past = rows[0]
             if past["ts"] == latest["ts"]:
                 continue
-            diff = _diff_samples(sensor, past["payload"], latest["payload"])
+            diff = _diff_samples(
+                sensor, past["payload"], latest["payload"], judge=_make_judge(store, config)
+            )
             if diff:
                 changes.append(
                     {
@@ -242,8 +248,35 @@ def build_server(store: Store, config: Config) -> FastMCP:
     return mcp
 
 
-def _diff_samples(sensor: str, past: dict, latest: dict) -> dict[str, Any]:
-    """Compute the human-meaningful diff between two samples of one sensor."""
+def _make_judge(store: Store, config: Config):
+    """Build a closure that judges whether a metric value is anomalous against its
+    recorded baseline. Used by what_changed_since to gate scalar deltas — only
+    values outside the baseline surface, so routine drift doesn't flood the result.
+    """
+
+    def judge(metric: str, value: float) -> bool:
+        b = _hydrate_baseline(store, config, metric)
+        stats = b.stats_for(metric)
+        if stats is None or stats.n < config.min_samples:
+            return False  # cold-start: can't call it anomalous yet
+        return b.evaluate(metric, value).is_anomaly
+
+    return judge
+
+
+def _diff_samples(
+    sensor: str,
+    past: dict,
+    latest: dict,
+    judge=None,
+) -> dict[str, Any]:
+    """Compute the human-meaningful diff between two samples of one sensor.
+
+    Set-valued keys (containers, models) surface on any add/remove — always
+    meaningful. Scalar keys surface only when the new value is anomalous against
+    its baseline (via `judge`); without a judge, falls back to any-nonzero-delta
+    (used where baseline gating isn't wanted, e.g. tests of the raw diff).
+    """
     out: dict[str, Any] = {}
     set_keys = _SET_METRICS.get(sensor, [])
     for key in set_keys:
@@ -263,10 +296,17 @@ def _diff_samples(sensor: str, past: dict, latest: dict) -> dict[str, Any]:
             and isinstance(old_v, (int, float))
             and not isinstance(new_v, bool)
         )
-        if is_numeric:
-            delta = new_v - old_v
-            if abs(delta) > 1e-9:
-                out[k] = {"from": old_v, "to": new_v, "delta": round(delta, 4)}
+        if not is_numeric:
+            continue
+        delta = new_v - old_v
+        if abs(delta) <= 1e-9:
+            continue
+        if judge is not None:
+            # Gate on anomaly: only surface if the new value is outside the baseline.
+            metric = f"{sensor}.{k}"
+            if not judge(metric, float(new_v)):
+                continue
+        out[k] = {"from": old_v, "to": new_v, "delta": round(delta, 4)}
     return out
 
 
