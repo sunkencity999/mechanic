@@ -2,6 +2,8 @@
 
 > A local-first baseline & anomaly daemon that gives your AI assistants **memory of your machine** — over MCP.
 
+> 🎬 **See it in action:** an interactive over-the-shoulder demo of Mechanic × Drift at **https://sunkencity999.github.io/mechanic-drift-demo/**.
+
 ```
             ┌──────────────────────────────┐
             │   you ask your AI assistant    │
