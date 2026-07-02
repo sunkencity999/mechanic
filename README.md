@@ -57,8 +57,10 @@ bash scripts/install.sh
 ```
 
 That installs Mechanic into a venv under `~/.local/share/mechanic`, starts the sampler
-under your user supervisor (launchd on macOS, systemd --user on Linux), and offers to
-wire it into Claude Code's MCP config. When it's done, restart your AI client and ask:
+under your user supervisor (launchd on macOS, systemd --user on Linux), and wires it
+into every MCP client it finds on your box — **Claude Code, Codex, and Antigravity**
+(see [Supported AI clients](#supported-ai-clients) below). When it's done, restart
+your AI client and ask:
 
 > *"Use the mechanic tools — is the current memory pressure normal for this machine?"*
 
@@ -95,6 +97,25 @@ bash scripts/uninstall.sh          # stops daemon, removes install, keeps data +
 bash scripts/uninstall.sh --purge  # also removes data + config
 ```
 
+### Supported AI clients
+
+Mechanic is a standard **stdio MCP server**, so it works with any MCP-speaking client. The installer auto-wires the ones whose config it detects on your box:
+
+| Client | Config file | Auto-wired? |
+|---|---|---|
+| **Claude Code** | `~/.claude.json` | ✓ |
+| **Codex** (OpenAI) | `~/.codex/config.toml` | ✓ |
+| **Antigravity** (Google) | `~/.gemini/antigravity/mcp_config.json` | ✓ |
+| Cursor, Cline, `aichat`, `mods`, others | — | manual (see below) |
+
+For a client the installer doesn't recognize, add a server entry manually in that client's MCP config. The server command is:
+
+```
+/Users/<you>/.local/share/mechanic/.venv/bin/mechanic server
+```
+
+with the env var `MECHANIC_DATA_DIR=/Users/<you>/.local/share/mechanic-data`. (Most MCP clients use the `{"mcpServers": {"mechanic": {"command": "...", "args": ["server"], "env": {...}}}}` shape.)
+
 ## The MCP tools
 
 These are what your AI client sees. All read-only, all return JSON designed to be reasoned over.
@@ -127,7 +148,7 @@ What's installed and working on this box: sensor availability flags, storage pat
 
 ### Example prompts to try
 
-These are written for an AI client (Claude Code, etc.) that has the `mechanic` MCP server connected. Copy them verbatim or adapt — they're grouped by what you're actually trying to do.
+These are written for any AI client (Claude Code, Codex, Antigravity, Cursor, Cline, etc.) that has the `mechanic` MCP server connected. Copy them verbatim or adapt — they're grouped by what you're actually trying to do.
 
 **First run / "is this thing on?"**
 - *"Run the mechanic doctor tool and tell me what's available on this machine."*
