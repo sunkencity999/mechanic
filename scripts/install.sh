@@ -204,42 +204,89 @@ EOF
   loginctl enable-linger "$USER" 2>/dev/null || true
 fi
 
-# --- wire Claude Code MCP entry ---------------------------------------------
+# --- wire MCP clients (all that are present on this box) --------------------
+# Wires `mechanic` into every AI client whose config file exists:
+#   Claude Code  ~/.claude.json                              (JSON, mcpServers)
+#   Codex        ~/.codex/config.toml                         (TOML, [mcp_servers.<name>])
+#   Antigravity  ~/.gemini/antigravity/mcp_config.json        (JSON, mcpServers)
+# Each is idempotent and backed up first. Absent clients are skipped silently.
 hdr "AI client wiring"
 CLAUDE_JSON="$HOME/.claude.json"
-wire_claude() {
-  if [[ ! -f "$CLAUDE_JSON" ]]; then
-    warn "~/.claude.json not found — skipping Claude Code wiring."
-    info "When you install Claude Code, re-run this script or add the server manually:"
-    info "  mechanic server  (as an stdio MCP server)"
+CODEX_TOML="$HOME/.codex/config.toml"
+ANTIGRAVITY_JSON="$HOME/.gemini/antigravity/mcp_config.json"
+
+# wire a JSON-format client (Claude, Antigravity). $1 = path, $2 = label for messages.
+wire_json_client() {
+  local path="$1" label="$2"
+  if [[ ! -f "$path" ]]; then
+    info "$label not found — skipping ($path)"
     return
   fi
-  # Timestamped backup
-  cp "$CLAUDE_JSON" "$CLAUDE_JSON.mechanic-bak.$(date +%Y%m%d%H%M%S)"
-  # Idempotent insert via python (json-safe)
-  "$VENV_DIR/bin/python" - <<PYEOF
-import json, sys, os
-path = os.path.expanduser("$CLAUDE_JSON")
-with open(path) as f:
-    cfg = json.load(f)
+  cp "$path" "$path.mechanic-bak.$(date +%Y%m%d%H%M%S)"
+  "$VENV_DIR/bin/python" - "$path" <<PYEOF
+import json, os, sys
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        cfg = json.load(f)
+except Exception:
+    cfg = {}  # empty/invalid → start fresh (Antigravity ships an empty file)
 mcp = cfg.setdefault("mcpServers", {})
-venv = "$VENV_DIR"
 mcp["mechanic"] = {
     "type": "stdio",
-    "command": f"{venv}/bin/mechanic",
+    "command": "$VENV_DIR/bin/mechanic",
     "args": ["server"],
     "env": {"MECHANIC_DATA_DIR": "$DATA_DIR"},
 }
 with open(path, "w") as f:
     json.dump(cfg, f, indent=2)
-print("✓ wired 'mechanic' server into ~/.claude.json")
+print(f"✓ wired 'mechanic' into $path")
 PYEOF
 }
 
-if [[ "$SKIP_CLAUDE_WIRE" == "1" ]]; then
-  info "Claude wiring skipped (MECHANIC_SKIP_CLAUDE_WIRE=1)"
+# wire Codex (TOML). Targeted idempotent append — no round-trip, preserves user content.
+wire_codex() {
+  if [[ ! -f "$CODEX_TOML" ]]; then
+    info "Codex not found — skipping ($CODEX_TOML)"
+    return
+  fi
+  # Idempotency check: parse with tomllib, skip if [mcp_servers.mechanic] already exists.
+  if "$VENV_DIR/bin/python" - "$CODEX_TOML" <<PYEOF
+import tomllib, sys
+with open(sys.argv[1], "rb") as f:
+    d = tomllib.load(f)
+raise SystemExit(0 if "mechanic" in d.get("mcp_servers", {}) else 1)
+PYEOF
+  then
+    info "Codex already has 'mechanic' — skipping ($CODEX_TOML)"
+    return
+  fi
+  cp "$CODEX_TOML" "$CODEX_TOML.mechanic-bak.$(date +%Y%m%d%H%M%S)"
+  # Unquoted heredoc so $VENV_DIR/$DATA_DIR expand to the real absolute paths.
+  # Safe: the values are filesystem paths with no characters that break TOML strings.
+  cat >> "$CODEX_TOML" <<EOF
+
+# Mechanic — local baseline/anomaly daemon. Added by mechanic install.sh.
+[mcp_servers.mechanic]
+command = "$VENV_DIR/bin/mechanic"
+args = ["server"]
+startup_timeout_sec = 30
+[mcp_servers.mechanic.env]
+MECHANIC_DATA_DIR = "$DATA_DIR"
+EOF
+  log "wired 'mechanic' into $CODEX_TOML"
+}
+
+wire_mcp_clients() {
+  wire_json_client "$CLAUDE_JSON" "Claude Code"
+  wire_codex
+  wire_json_client "$ANTIGRAVITY_JSON" "Antigravity"
+}
+
+if [[ "${SKIP_MCP_WIRE:-${MECHANIC_SKIP_CLAUDE_WIRE:-0}}" == "1" ]]; then
+  info "MCP client wiring skipped (SKIP_MCP_WIRE=1)"
 else
-  wire_claude
+  wire_mcp_clients
 fi
 
 # --- doctor ------------------------------------------------------------------
